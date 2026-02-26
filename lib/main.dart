@@ -679,7 +679,7 @@ class _EntryEditorScreenState extends State<EntryEditorScreen> {
             ),
             CupertinoButton(
               padding: const EdgeInsets.only(left: 8),
-              onPressed: _saving ? null : () => _showMoreMenu(context),
+              onPressed: _saving ? null : _showMoreMenu,
               child: const Icon(CupertinoIcons.ellipsis_circle),
             ),
           ],
@@ -804,13 +804,11 @@ class _EntryEditorScreenState extends State<EntryEditorScreen> {
         widget.initialEntry.path,
         _textController.text,
       );
-      if (context.mounted) {
-        Navigator.of(context).pop();
-      }
+      if (!mounted) return;
+      Navigator.of(this.context).pop();
     } catch (e) {
-      if (context.mounted) {
-        await _showInfo(context, 'Save failed: $e');
-      }
+      if (!mounted) return;
+      await _showInfo(this.context, 'Save failed: $e');
     } finally {
       if (mounted) {
         setState(() => _saving = false);
@@ -818,9 +816,10 @@ class _EntryEditorScreenState extends State<EntryEditorScreen> {
     }
   }
 
-  Future<void> _showMoreMenu(BuildContext context) async {
+  Future<void> _showMoreMenu() async {
+    if (!mounted) return;
     final action = await showCupertinoModalPopup<String>(
-      context: context,
+      context: this.context,
       builder: (context) => CupertinoActionSheet(
         actions: [
           CupertinoActionSheetAction(
@@ -837,12 +836,12 @@ class _EntryEditorScreenState extends State<EntryEditorScreen> {
     );
 
     if (action == 'delete') {
-      final confirmed = await _confirmDelete(context);
-      if (confirmed != true || !context.mounted) return;
+      if (!mounted) return;
+      final confirmed = await _confirmDelete(this.context);
+      if (confirmed != true || !mounted) return;
       await widget.controller.deleteEntry(widget.initialEntry.path);
-      if (context.mounted) {
-        Navigator.of(context).pop();
-      }
+      if (!mounted) return;
+      Navigator.of(this.context).pop();
     }
   }
 
@@ -953,7 +952,7 @@ class _ToolbarChip extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(right: 8),
       child: CupertinoButton(
-        minSize: 0,
+        minimumSize: Size.zero,
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         color: CupertinoColors.tertiarySystemFill.resolveFrom(context),
         borderRadius: BorderRadius.circular(999),
