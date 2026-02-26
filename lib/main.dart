@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:path/path.dart' as p;
+import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:yaml/yaml.dart';
 
@@ -73,6 +74,7 @@ class DiaryController extends ChangeNotifier {
   static const _prefsFolderPath = 'folder_path';
 
   bool darkMode = false;
+  bool hasFileAccessPermission = false;
   String? diaryFolderPath;
   List<DiaryEntryFile> entries = const [];
   String? lastError;
@@ -81,6 +83,7 @@ class DiaryController extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     darkMode = prefs.getBool(_prefsDarkMode) ?? false;
     diaryFolderPath = prefs.getString(_prefsFolderPath);
+    await refreshStoragePermissionStatus();
     await refreshEntries();
   }
 
@@ -93,6 +96,12 @@ class DiaryController extends ChangeNotifier {
 
   Future<void> chooseDiaryFolder() async {
     try {
+      final allowed = await ensureStorageAccess(interactive: true);
+      if (!allowed) {
+        lastError = 'File access permission is required to read/write diary files.';
+        notifyListeners();
+        return;
+      }
       final selected = await FilePicker.platform.getDirectoryPath(
         dialogTitle: 'Choose diary folder',
       );
@@ -111,6 +120,7 @@ class DiaryController extends ChangeNotifier {
   }
 
   Future<void> refreshEntries() async {
+    await refreshStoragePermissionStatus();
     final folder = diaryFolderPath;
     if (folder == null || folder.isEmpty) {
       entries = const [];
@@ -164,6 +174,12 @@ class DiaryController extends ChangeNotifier {
   Future<DiaryEntryFile?> createEntry() async {
     final folder = diaryFolderPath;
     if (folder == null || folder.isEmpty) return null;
+    final allowed = await ensureStorageAccess(interactive: true);
+    if (!allowed) {
+      lastError = 'File access permission is required to create entries.';
+      notifyListeners();
+      return null;
+    }
 
     final now = DateTime.now();
     final safeStamp = _fileTimestamp(now);
@@ -188,12 +204,24 @@ class DiaryController extends ChangeNotifier {
   }
 
   Future<void> saveEntry(String path, String rawContent) async {
+    final allowed = await ensureStorageAccess(interactive: true);
+    if (!allowed) {
+      lastError = 'File access permission is required to save entries.';
+      notifyListeners();
+      return;
+    }
     final file = File(path);
     await file.writeAsString(rawContent, flush: true);
     await refreshEntries();
   }
 
   Future<void> deleteEntry(String path) async {
+    final allowed = await ensureStorageAccess(interactive: true);
+    if (!allowed) {
+      lastError = 'File access permission is required to delete entries.';
+      notifyListeners();
+      return;
+    }
     final file = File(path);
     if (await file.exists()) {
       await file.delete();
@@ -209,6 +237,80 @@ class DiaryController extends ChangeNotifier {
   String _dateTitle(DateTime d) {
     String two(int v) => v.toString().padLeft(2, '0');
     return '${d.year}-${two(d.month)}-${two(d.day)}';
+  }
+
+  Future<void> refreshStoragePermissionStatus() async {
+    if (!Platform.isAndroid) {
+      hasFileAccessPermission = true;
+      notifyListeners();
+      return;
+    }
+
+    try {
+      final fullAccess = await Permission.manageExternalStorage.status;
+      final storageAccess = await Permission.storage.status;
+      hasFileAccessPermission = fullAccess.isGranted || storageAccess.isGranted;
+    } catch (_) {
+      hasFileAccessPermission = false;
+    }
+    notifyListeners();
+  }
+
+  Future<bool> ensureStorageAccess({required bool interactive}) async {
+    if (!Platform.isAndroid) {
+      hasFileAccessPermission = true;
+      return true;
+    }
+
+    final fullAccessStatus = await Permission.manageExternalStorage.status;
+    if (fullAccessStatus.isGranted) {
+      hasFileAccessPermission = true;
+      notifyListeners();
+      return true;
+    }
+
+    final storageStatus = await Permission.storage.status;
+    if (storageStatus.isGranted) {
+      hasFileAccessPermission = true;
+      notifyListeners();
+      return true;
+    }
+
+    if (!interactive) {
+      hasFileAccessPermission = false;
+      notifyListeners();
+      return false;
+    }
+
+    final requestedFull = await Permission.manageExternalStorage.request();
+    if (requestedFull.isGranted) {
+      hasFileAccessPermission = true;
+      lastError = null;
+      notifyListeners();
+      return true;
+    }
+
+    final requestedStorage = await Permission.storage.request();
+    if (requestedStorage.isGranted) {
+      hasFileAccessPermission = true;
+      lastError = null;
+      notifyListeners();
+      return true;
+    }
+
+    hasFileAccessPermission = false;
+    lastError = 'Grant "All files access" in Android settings for folder-based diary storage.';
+    notifyListeners();
+    return false;
+  }
+
+  Future<void> requestFullFileAccess() async {
+    await ensureStorageAccess(interactive: true);
+  }
+
+  Future<void> openSystemAppSettings() async {
+    await openAppSettings();
+    await refreshStoragePermissionStatus();
   }
 }
 
@@ -458,11 +560,30 @@ class SettingsScreen extends StatelessWidget {
                 CupertinoListSection.insetGrouped(
                   header: const Text('Storage'),
                   footer: Text(
-                    controller.diaryFolderPath == null
-                        ? 'No folder selected. Pick an Android folder to store markdown files.'
-                        : controller.diaryFolderPath!,
+                    [
+                      controller.hasFileAccessPermission
+                          ? 'File access: granted'
+                          : 'File access: not granted (needed for .md files in external folders)',
+                      controller.diaryFolderPath == null
+                          ? 'No folder selected. Pick an Android folder to store markdown files.'
+                          : controller.diaryFolderPath!,
+                    ].join('\n'),
                   ),
                   children: [
+                    PlainCupertinoListTile(
+                      title: const Text('Grant Full File Access'),
+                      trailing: Icon(
+                        controller.hasFileAccessPermission
+                            ? CupertinoIcons.check_mark_circled_solid
+                            : CupertinoIcons.lock,
+                      ),
+                      onTap: controller.requestFullFileAccess,
+                    ),
+                    PlainCupertinoListTile(
+                      title: const Text('Open App Settings'),
+                      trailing: const Icon(CupertinoIcons.gear),
+                      onTap: controller.openSystemAppSettings,
+                    ),
                     PlainCupertinoListTile(
                       title: const Text('Choose Diary Folder'),
                       trailing: const Icon(CupertinoIcons.folder),

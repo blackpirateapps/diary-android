@@ -12,6 +12,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   file_picker: ^8.1.2
   path: ^1.9.0
+  permission_handler: ^11.3.1
   shared_preferences: ^2.3.2
   yaml: ^3.1.2
 
@@ -22,4 +23,3 @@ dev_dependencies:
 
 flutter:
   uses-material-design: false
-
