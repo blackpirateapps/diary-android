@@ -819,14 +819,10 @@ class _EmptyState extends StatelessWidget {
   const _EmptyState({
     required this.title,
     required this.message,
-    this.actionLabel,
-    this.onAction,
   });
 
   final String title;
   final String message;
-  final String? actionLabel;
-  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) {
@@ -848,10 +844,6 @@ class _EmptyState extends StatelessWidget {
             ),
             textAlign: TextAlign.center,
           ),
-          if (actionLabel != null && onAction != null) ...[
-            const SizedBox(height: 16),
-            CupertinoButton(onPressed: onAction, child: Text(actionLabel!)),
-          ],
         ],
       ),
     );
