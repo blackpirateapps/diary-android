@@ -659,7 +659,7 @@ class _ToolbarChip extends StatelessWidget {
         minimumSize: Size.zero,
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         color: selected
-            ? CupertinoColors.systemBlue.withOpacity(0.14)
+            ? CupertinoColors.systemBlue.withValues(alpha: 0.14)
             : CupertinoColors.tertiarySystemFill.resolveFrom(context),
         borderRadius: BorderRadius.circular(999),
         onPressed: onTap,
@@ -779,7 +779,7 @@ class _EditableImageCard extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.all(2),
                 decoration: BoxDecoration(
-                  color: CupertinoColors.black.withOpacity(0.45),
+                  color: CupertinoColors.black.withValues(alpha: 0.45),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
@@ -797,7 +797,7 @@ class _EditableImageCard extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
               decoration: BoxDecoration(
-                color: CupertinoColors.black.withOpacity(0.45),
+                color: CupertinoColors.black.withValues(alpha: 0.45),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Text(
