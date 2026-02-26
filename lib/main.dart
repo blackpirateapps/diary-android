@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:path/path.dart' as p;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -638,6 +639,7 @@ class _EntryEditorScreenState extends State<EntryEditorScreen> {
   late final TextEditingController _textController;
   late MarkdownFrontmatterResult _parsed;
   bool _saving = false;
+  int _editorMode = 0; // 0 = write, 1 = preview
 
   @override
   void initState() {
@@ -665,33 +667,22 @@ class _EntryEditorScreenState extends State<EntryEditorScreen> {
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
         middle: Text(widget.initialEntry.fileName),
-        trailing: CupertinoButton(
-          padding: EdgeInsets.zero,
-          onPressed: _saving
-              ? null
-              : () async {
-                  setState(() => _saving = true);
-                  try {
-                    await widget.controller.saveEntry(
-                      widget.initialEntry.path,
-                      _textController.text,
-                    );
-                    if (context.mounted) {
-                      Navigator.of(context).pop();
-                    }
-                  } catch (e) {
-                    if (context.mounted) {
-                      await _showInfo(context, 'Save failed: $e');
-                    }
-                  } finally {
-                    if (mounted) {
-                      setState(() => _saving = false);
-                    }
-                  }
-                },
-          child: _saving
-              ? const CupertinoActivityIndicator()
-              : const Text('Save'),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CupertinoButton(
+              padding: EdgeInsets.zero,
+              onPressed: _saving ? null : _saveAndClose,
+              child: _saving
+                  ? const CupertinoActivityIndicator()
+                  : const Text('Save'),
+            ),
+            CupertinoButton(
+              padding: const EdgeInsets.only(left: 8),
+              onPressed: _saving ? null : () => _showMoreMenu(context),
+              child: const Icon(CupertinoIcons.ellipsis_circle),
+            ),
+          ],
         ),
       ),
       child: SafeArea(
@@ -722,17 +713,48 @@ class _EntryEditorScreenState extends State<EntryEditorScreen> {
                       .toList(),
                 ),
               ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: CupertinoSlidingSegmentedControl<int>(
+                      groupValue: _editorMode,
+                      onValueChanged: (value) {
+                        if (value == null) return;
+                        setState(() => _editorMode = value);
+                      },
+                      children: const {
+                        0: Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          child: Text('Write'),
+                        ),
+                        1: Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          child: Text('Preview'),
+                        ),
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (_editorMode == 0)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+                child: _EditorToolbar(
+                  onInsertHeading: () => _prefixLine('# '),
+                  onBold: () => _wrapSelection('**', '**'),
+                  onItalic: () => _wrapSelection('_', '_'),
+                  onBullet: () => _prefixLine('- '),
+                  onCheckbox: () => _prefixLine('- [ ] '),
+                  onCode: () => _wrapSelection('`', '`'),
+                ),
+              ),
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.all(12),
-                child: CupertinoTextField(
-                  controller: _textController,
-                  expands: true,
-                  maxLines: null,
-                  minLines: null,
-                  textAlignVertical: TextAlignVertical.top,
-                  padding: const EdgeInsets.all(12),
-                  placeholder: 'Markdown entry...',
+                child: Container(
                   decoration: BoxDecoration(
                     color: CupertinoColors.secondarySystemBackground.resolveFrom(context),
                     borderRadius: BorderRadius.circular(12),
@@ -740,26 +762,126 @@ class _EntryEditorScreenState extends State<EntryEditorScreen> {
                       color: CupertinoColors.separator.resolveFrom(context),
                     ),
                   ),
+                  child: _editorMode == 0
+                      ? CupertinoTextField(
+                          controller: _textController,
+                          expands: true,
+                          maxLines: null,
+                          minLines: null,
+                          textAlignVertical: TextAlignVertical.top,
+                          padding: const EdgeInsets.all(12),
+                          placeholder: 'Markdown entry...',
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 15,
+                            height: 1.4,
+                          ),
+                          decoration: null,
+                        )
+                      : SingleChildScrollView(
+                          padding: const EdgeInsets.all(12),
+                          child: DefaultTextStyle(
+                            style: CupertinoTheme.of(context).textTheme.textStyle,
+                            child: MarkdownBody(
+                              data: _textController.text,
+                              selectable: true,
+                            ),
+                          ),
+                        ),
                 ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-              child: CupertinoButton.filled(
-                onPressed: () async {
-                  final confirmed = await _confirmDelete(context);
-                  if (confirmed != true || !context.mounted) return;
-                  await widget.controller.deleteEntry(widget.initialEntry.path);
-                  if (context.mounted) {
-                    Navigator.of(context).pop();
-                  }
-                },
-                child: const Text('Delete Entry'),
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Future<void> _saveAndClose() async {
+    setState(() => _saving = true);
+    try {
+      await widget.controller.saveEntry(
+        widget.initialEntry.path,
+        _textController.text,
+      );
+      if (context.mounted) {
+        Navigator.of(context).pop();
+      }
+    } catch (e) {
+      if (context.mounted) {
+        await _showInfo(context, 'Save failed: $e');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _saving = false);
+      }
+    }
+  }
+
+  Future<void> _showMoreMenu(BuildContext context) async {
+    final action = await showCupertinoModalPopup<String>(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        actions: [
+          CupertinoActionSheetAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.of(context).pop('delete'),
+            child: const Text('Delete Entry'),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+      ),
+    );
+
+    if (action == 'delete') {
+      final confirmed = await _confirmDelete(context);
+      if (confirmed != true || !context.mounted) return;
+      await widget.controller.deleteEntry(widget.initialEntry.path);
+      if (context.mounted) {
+        Navigator.of(context).pop();
+      }
+    }
+  }
+
+  void _wrapSelection(String prefix, String suffix) {
+    final value = _textController.value;
+    final selection = value.selection;
+    if (!selection.isValid) return;
+    final start = selection.start;
+    final end = selection.end;
+    if (start < 0 || end < 0) return;
+    final text = value.text;
+    final selected = text.substring(start, end);
+    final replacement = '$prefix$selected$suffix';
+    final updated = text.replaceRange(start, end, replacement);
+    _textController.value = value.copyWith(
+      text: updated,
+      selection: TextSelection.collapsed(offset: start + replacement.length),
+      composing: TextRange.empty,
+    );
+  }
+
+  void _prefixLine(String prefix) {
+    final value = _textController.value;
+    final selection = value.selection;
+    if (!selection.isValid) return;
+    final text = value.text;
+    final cursor = selection.start;
+    if (cursor < 0) return;
+    final lineStart = text.lastIndexOf('\n', cursor - 1);
+    final insertAt = lineStart == -1 ? 0 : lineStart + 1;
+    final updated = text.replaceRange(insertAt, insertAt, prefix);
+    final movedBy = prefix.length;
+    _textController.value = value.copyWith(
+      text: updated,
+      selection: TextSelection(
+        baseOffset: selection.baseOffset + movedBy,
+        extentOffset: selection.extentOffset + movedBy,
+      ),
+      composing: TextRange.empty,
     );
   }
 
@@ -780,6 +902,66 @@ class _EntryEditorScreenState extends State<EntryEditorScreen> {
             child: const Text('Delete'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _EditorToolbar extends StatelessWidget {
+  const _EditorToolbar({
+    required this.onInsertHeading,
+    required this.onBold,
+    required this.onItalic,
+    required this.onBullet,
+    required this.onCheckbox,
+    required this.onCode,
+  });
+
+  final VoidCallback onInsertHeading;
+  final VoidCallback onBold;
+  final VoidCallback onItalic;
+  final VoidCallback onBullet;
+  final VoidCallback onCheckbox;
+  final VoidCallback onCode;
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          _ToolbarChip(label: 'H1', onTap: onInsertHeading),
+          _ToolbarChip(label: 'B', onTap: onBold),
+          _ToolbarChip(label: 'I', onTap: onItalic),
+          _ToolbarChip(label: '• List', onTap: onBullet),
+          _ToolbarChip(label: '☑', onTap: onCheckbox),
+          _ToolbarChip(label: '</>', onTap: onCode),
+        ],
+      ),
+    );
+  }
+}
+
+class _ToolbarChip extends StatelessWidget {
+  const _ToolbarChip({required this.label, required this.onTap});
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: CupertinoButton(
+        minSize: 0,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        color: CupertinoColors.tertiarySystemFill.resolveFrom(context),
+        borderRadius: BorderRadius.circular(999),
+        onPressed: onTap,
+        child: Text(
+          label,
+          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+        ),
       ),
     );
   }
