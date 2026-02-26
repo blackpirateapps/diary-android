@@ -727,7 +727,7 @@ class _ImageGallery extends StatelessWidget {
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: imageNames.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 10),
+        separatorBuilder: (context, index) => const SizedBox(width: 10),
         itemBuilder: (context, index) {
           final imageName = imageNames[index];
           return _EditableImageCard(
@@ -830,7 +830,7 @@ class _ReadOnlyImageGallery extends StatelessWidget {
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: imageNames.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 10),
+        separatorBuilder: (context, index) => const SizedBox(width: 10),
         itemBuilder: (context, index) {
           final imageName = imageNames[index];
           return Container(
