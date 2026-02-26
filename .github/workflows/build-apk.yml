@@ -22,6 +22,23 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Create Android local.properties for CI
+        run: |
+          {
+            echo "flutter.sdk=$FLUTTER_ROOT"
+            if [ -n "$ANDROID_SDK_ROOT" ]; then
+              echo "sdk.dir=$ANDROID_SDK_ROOT"
+            elif [ -n "$ANDROID_HOME" ]; then
+              echo "sdk.dir=$ANDROID_HOME"
+            fi
+          } > android/local.properties
+
       - name: Set up Gradle (for wrapper bootstrap)
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -31,14 +48,11 @@ jobs:
         working-directory: android
         run: gradle wrapper --gradle-version 8.4
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-
       - name: Install dependencies
         run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
 
       - name: Build debug APK
         run: flutter build apk --debug
@@ -49,4 +63,3 @@ jobs:
           name: diary-android-debug-apk
           path: build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
-
