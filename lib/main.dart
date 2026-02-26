@@ -5,6 +5,8 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:geocoding/geocoding.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:path/path.dart' as p;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -636,29 +638,38 @@ class EntryEditorScreen extends StatefulWidget {
 }
 
 class _EntryEditorScreenState extends State<EntryEditorScreen> {
-  late final TextEditingController _textController;
-  late MarkdownFrontmatterResult _parsed;
+  late final TextEditingController _titleController;
+  late final TextEditingController _bodyController;
+  late final Map<String, Object?> _frontmatterDraft;
   bool _saving = false;
-  int _editorMode = 0; // 0 = write, 1 = preview
+  bool _previewMode = false;
+  bool _locating = false;
 
   @override
   void initState() {
     super.initState();
-    _textController = TextEditingController(text: widget.initialEntry.rawContent);
-    _parsed = MarkdownFrontmatter.parse(_textController.text);
-    _textController.addListener(_onChanged);
+    final parsed = MarkdownFrontmatter.parse(widget.initialEntry.rawContent);
+    _frontmatterDraft = Map<String, Object?>.from(parsed.frontmatter);
+    _titleController = TextEditingController(
+      text: (_frontmatterDraft['title']?.toString().trim().isNotEmpty ?? false)
+          ? _frontmatterDraft['title']!.toString()
+          : _fallbackTitle(widget.initialEntry, parsed.body),
+    );
+    _bodyController = TextEditingController(text: parsed.body);
+    _titleController.addListener(_onChanged);
+    _bodyController.addListener(_onChanged);
   }
 
   void _onChanged() {
-    setState(() {
-      _parsed = MarkdownFrontmatter.parse(_textController.text);
-    });
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
-    _textController.removeListener(_onChanged);
-    _textController.dispose();
+    _titleController.removeListener(_onChanged);
+    _bodyController.removeListener(_onChanged);
+    _titleController.dispose();
+    _bodyController.dispose();
     super.dispose();
   }
 
@@ -688,69 +699,75 @@ class _EntryEditorScreenState extends State<EntryEditorScreen> {
       child: SafeArea(
         child: Column(
           children: [
-            if (_parsed.frontmatter.isNotEmpty)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                color: CupertinoColors.systemGrey6.resolveFrom(context),
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: _parsed.frontmatter.entries
-                      .map(
-                        (e) => Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: CupertinoColors.systemGrey5.resolveFrom(context),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            '${e.key}: ${e.value}',
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                        ),
-                      )
-                      .toList(),
-                ),
-              ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
-              child: Row(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+              child: CupertinoTextField(
+                controller: _titleController,
+                placeholder: 'Title',
+                style: CupertinoTheme.of(context)
+                    .textTheme
+                    .navLargeTitleTextStyle
+                    .copyWith(fontSize: 20),
+                padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 8),
+                decoration: null,
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: CupertinoSlidingSegmentedControl<int>(
-                      groupValue: _editorMode,
-                      onValueChanged: (value) {
-                        if (value == null) return;
-                        setState(() => _editorMode = value);
-                      },
-                      children: const {
-                        0: Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          child: Text('Write'),
+                  Row(
+                    children: [
+                      _InlinePillButton(
+                        icon: CupertinoIcons.location_solid,
+                        label: 'Add Place',
+                        onTap: _addManualLocation,
+                      ),
+                      const SizedBox(width: 8),
+                      _InlinePillButton(
+                        icon: CupertinoIcons.location,
+                        label: _locating ? 'Locating...' : 'Current Location',
+                        onTap: _locating ? null : _useCurrentLocation,
+                      ),
+                      if (_locationLabel != null) ...[
+                        const Spacer(),
+                        CupertinoButton(
+                          padding: EdgeInsets.zero,
+                          minimumSize: Size.zero,
+                          onPressed: _clearLocation,
+                          child: const Icon(CupertinoIcons.clear_circled_solid, size: 18),
                         ),
-                        1: Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          child: Text('Preview'),
-                        ),
-                      },
-                    ),
+                      ],
+                    ],
                   ),
+                  if (_locationLabel != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Text(
+                        _locationLabel!,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: CupertinoColors.secondaryLabel.resolveFrom(context),
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
-            if (_editorMode == 0)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
-                child: _EditorToolbar(
-                  onInsertHeading: () => _prefixLine('# '),
-                  onBold: () => _wrapSelection('**', '**'),
-                  onItalic: () => _wrapSelection('_', '_'),
-                  onBullet: () => _prefixLine('- '),
-                  onCheckbox: () => _prefixLine('- [ ] '),
-                  onCode: () => _wrapSelection('`', '`'),
-                ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+              child: _EditorToolbar(
+                onInsertHeading: () => _prefixLine('# '),
+                onBold: () => _wrapSelection('**', '**'),
+                onItalic: () => _wrapSelection('_', '_'),
+                onBullet: () => _prefixLine('- '),
+                onCheckbox: () => _prefixLine('- [ ] '),
+                onCode: () => _wrapSelection('`', '`'),
+                previewEnabled: _previewMode,
+                onTogglePreview: () => setState(() => _previewMode = !_previewMode),
               ),
+            ),
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.all(12),
@@ -762,19 +779,19 @@ class _EntryEditorScreenState extends State<EntryEditorScreen> {
                       color: CupertinoColors.separator.resolveFrom(context),
                     ),
                   ),
-                  child: _editorMode == 0
+                  child: !_previewMode
                       ? CupertinoTextField(
-                          controller: _textController,
+                          controller: _bodyController,
                           expands: true,
                           maxLines: null,
                           minLines: null,
                           textAlignVertical: TextAlignVertical.top,
                           padding: const EdgeInsets.all(12),
-                          placeholder: 'Markdown entry...',
-                          style: const TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 15,
-                            height: 1.4,
+                          placeholder: 'Start writing...',
+                          style: TextStyle(
+                            fontSize: 17,
+                            height: 1.35,
+                            color: CupertinoColors.label.resolveFrom(context),
                           ),
                           decoration: null,
                         )
@@ -782,9 +799,49 @@ class _EntryEditorScreenState extends State<EntryEditorScreen> {
                           padding: const EdgeInsets.all(12),
                           child: DefaultTextStyle(
                             style: CupertinoTheme.of(context).textTheme.textStyle,
-                            child: MarkdownBody(
-                              data: _textController.text,
-                              selectable: true,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (_titleController.text.trim().isNotEmpty) ...[
+                                  Text(
+                                    _titleController.text.trim(),
+                                    style: CupertinoTheme.of(context)
+                                        .textTheme
+                                        .navLargeTitleTextStyle
+                                        .copyWith(fontSize: 22),
+                                  ),
+                                  const SizedBox(height: 8),
+                                ],
+                                if (_locationLabel != null) ...[
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        CupertinoIcons.location_solid,
+                                        size: 14,
+                                        color: CupertinoColors.secondaryLabel.resolveFrom(
+                                          context,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Expanded(
+                                        child: Text(
+                                          _locationLabel!,
+                                          style: TextStyle(
+                                            color: CupertinoColors.secondaryLabel.resolveFrom(
+                                              context,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 12),
+                                ],
+                                MarkdownBody(
+                                  data: _bodyController.text,
+                                  selectable: true,
+                                ),
+                              ],
                             ),
                           ),
                         ),
@@ -802,7 +859,7 @@ class _EntryEditorScreenState extends State<EntryEditorScreen> {
     try {
       await widget.controller.saveEntry(
         widget.initialEntry.path,
-        _textController.text,
+        _buildRawContent(),
       );
       if (!mounted) return;
       Navigator.of(context).pop();
@@ -846,7 +903,7 @@ class _EntryEditorScreenState extends State<EntryEditorScreen> {
   }
 
   void _wrapSelection(String prefix, String suffix) {
-    final value = _textController.value;
+    final value = _bodyController.value;
     final selection = value.selection;
     if (!selection.isValid) return;
     final start = selection.start;
@@ -856,7 +913,7 @@ class _EntryEditorScreenState extends State<EntryEditorScreen> {
     final selected = text.substring(start, end);
     final replacement = '$prefix$selected$suffix';
     final updated = text.replaceRange(start, end, replacement);
-    _textController.value = value.copyWith(
+    _bodyController.value = value.copyWith(
       text: updated,
       selection: TextSelection.collapsed(offset: start + replacement.length),
       composing: TextRange.empty,
@@ -864,7 +921,7 @@ class _EntryEditorScreenState extends State<EntryEditorScreen> {
   }
 
   void _prefixLine(String prefix) {
-    final value = _textController.value;
+    final value = _bodyController.value;
     final selection = value.selection;
     if (!selection.isValid) return;
     final text = value.text;
@@ -874,7 +931,7 @@ class _EntryEditorScreenState extends State<EntryEditorScreen> {
     final insertAt = lineStart == -1 ? 0 : lineStart + 1;
     final updated = text.replaceRange(insertAt, insertAt, prefix);
     final movedBy = prefix.length;
-    _textController.value = value.copyWith(
+    _bodyController.value = value.copyWith(
       text: updated,
       selection: TextSelection(
         baseOffset: selection.baseOffset + movedBy,
@@ -904,6 +961,155 @@ class _EntryEditorScreenState extends State<EntryEditorScreen> {
       ),
     );
   }
+
+  String? get _locationLabel {
+    final value = _frontmatterDraft['location']?.toString().trim();
+    if (value == null || value.isEmpty) return null;
+    return value;
+  }
+
+  void _clearLocation() {
+    setState(() {
+      _frontmatterDraft.remove('location');
+      _frontmatterDraft.remove('latitude');
+      _frontmatterDraft.remove('longitude');
+    });
+  }
+
+  Future<void> _addManualLocation() async {
+    final controller = TextEditingController(text: _locationLabel ?? '');
+    final value = await showCupertinoDialog<String>(
+      context: context,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        title: const Text('Add Place'),
+        content: Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: CupertinoTextField(
+            controller: controller,
+            placeholder: 'Place name',
+            autofocus: true,
+          ),
+        ),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(dialogContext).pop(controller.text.trim()),
+            child: const Text('Done'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || value == null) return;
+    final trimmed = value.trim();
+    setState(() {
+      if (trimmed.isEmpty) {
+        _frontmatterDraft.remove('location');
+      } else {
+        _frontmatterDraft['location'] = trimmed;
+      }
+    });
+  }
+
+  Future<void> _useCurrentLocation() async {
+    setState(() => _locating = true);
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        if (!mounted) return;
+        await _showInfo(context, 'Location services are off. Enable GPS/location first.');
+        return;
+      }
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        if (!mounted) return;
+        await _showInfo(
+          context,
+          'Location permission is required to fetch current location.',
+        );
+        return;
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
+      );
+
+      String label = '${position.latitude.toStringAsFixed(5)}, '
+          '${position.longitude.toStringAsFixed(5)}';
+      try {
+        final placemarks = await placemarkFromCoordinates(
+          position.latitude,
+          position.longitude,
+        );
+        if (placemarks.isNotEmpty) {
+          final p = placemarks.first;
+          final parts = [
+            p.subLocality,
+            p.locality,
+            p.administrativeArea,
+            p.country,
+          ]
+              .whereType<String>()
+              .map((e) => e.trim())
+              .where((e) => e.isNotEmpty)
+              .toList();
+          if (parts.isNotEmpty) {
+            label = parts.toSet().join(', ');
+          }
+        }
+      } catch (_) {
+        // Fall back to coordinates only if reverse geocoding fails.
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _frontmatterDraft['location'] = label;
+        _frontmatterDraft['latitude'] = position.latitude;
+        _frontmatterDraft['longitude'] = position.longitude;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      await _showInfo(context, 'Could not get current location: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _locating = false);
+      }
+    }
+  }
+
+  String _buildRawContent() {
+    final title = _titleController.text.trim();
+    if (title.isEmpty) {
+      _frontmatterDraft.remove('title');
+    } else {
+      _frontmatterDraft['title'] = title;
+    }
+    final body = _bodyController.text;
+    return MarkdownFrontmatter.compose(
+      frontmatter: _frontmatterDraft,
+      body: body,
+    );
+  }
+
+  String _fallbackTitle(DiaryEntryFile entry, String body) {
+    for (final line in const LineSplitter().convert(body)) {
+      final trimmed = line.trim();
+      if (trimmed.startsWith('#')) {
+        return trimmed.replaceFirst(RegExp(r'^#+\s*'), '');
+      }
+      if (trimmed.isNotEmpty) return trimmed;
+    }
+    return entry.fileName;
+  }
 }
 
 class _EditorToolbar extends StatelessWidget {
@@ -914,6 +1120,8 @@ class _EditorToolbar extends StatelessWidget {
     required this.onBullet,
     required this.onCheckbox,
     required this.onCode,
+    required this.previewEnabled,
+    required this.onTogglePreview,
   });
 
   final VoidCallback onInsertHeading;
@@ -922,6 +1130,8 @@ class _EditorToolbar extends StatelessWidget {
   final VoidCallback onBullet;
   final VoidCallback onCheckbox;
   final VoidCallback onCode;
+  final bool previewEnabled;
+  final VoidCallback onTogglePreview;
 
   @override
   Widget build(BuildContext context) {
@@ -935,6 +1145,11 @@ class _EditorToolbar extends StatelessWidget {
           _ToolbarChip(label: '• List', onTap: onBullet),
           _ToolbarChip(label: '☑', onTap: onCheckbox),
           _ToolbarChip(label: '</>', onTap: onCode),
+          _ToolbarChip(
+            label: 'Preview',
+            selected: previewEnabled,
+            onTap: onTogglePreview,
+          ),
         ],
       ),
     );
@@ -942,10 +1157,17 @@ class _EditorToolbar extends StatelessWidget {
 }
 
 class _ToolbarChip extends StatelessWidget {
-  const _ToolbarChip({required this.label, required this.onTap});
+  const _ToolbarChip({
+    required this.label,
+    required this.onTap,
+    this.icon,
+    this.selected = false,
+  });
 
   final String label;
   final VoidCallback onTap;
+  final IconData? icon;
+  final bool selected;
 
   @override
   Widget build(BuildContext context) {
@@ -954,13 +1176,67 @@ class _ToolbarChip extends StatelessWidget {
       child: CupertinoButton(
         minimumSize: Size.zero,
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        color: CupertinoColors.tertiarySystemFill.resolveFrom(context),
+        color: selected
+            ? CupertinoColors.systemBlue.withOpacity(0.14)
+            : CupertinoColors.tertiarySystemFill.resolveFrom(context),
         borderRadius: BorderRadius.circular(999),
         onPressed: onTap,
-        child: Text(
-          label,
-          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 14),
+              const SizedBox(width: 4),
+            ],
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: selected
+                    ? CupertinoColors.systemBlue.resolveFrom(context)
+                    : CupertinoColors.label.resolveFrom(context),
+              ),
+            ),
+          ],
         ),
+      ),
+    );
+  }
+}
+
+class _InlinePillButton extends StatelessWidget {
+  const _InlinePillButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoButton(
+      minimumSize: Size.zero,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      color: CupertinoColors.tertiarySystemFill.resolveFrom(context),
+      borderRadius: BorderRadius.circular(10),
+      onPressed: onTap,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: CupertinoColors.secondaryLabel.resolveFrom(context)),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              color: CupertinoColors.label.resolveFrom(context),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1032,6 +1308,57 @@ class MarkdownFrontmatter {
       return value.nodes.map((e) => _normalizeYamlValue(e.value)).toList();
     }
     return value;
+  }
+
+  static String compose({
+    required Map<String, Object?> frontmatter,
+    required String body,
+  }) {
+    final cleaned = <String, Object?>{};
+    for (final entry in frontmatter.entries) {
+      final key = entry.key.trim();
+      if (key.isEmpty) continue;
+      final value = entry.value;
+      if (value is String && value.trim().isEmpty) continue;
+      cleaned[key] = value;
+    }
+
+    if (cleaned.isEmpty) {
+      return body;
+    }
+
+    final buffer = StringBuffer()..writeln('---');
+    for (final entry in cleaned.entries) {
+      buffer.writeln('${entry.key}: ${_toYamlInline(entry.value)}');
+    }
+    buffer.writeln('---');
+    if (body.isNotEmpty && !body.startsWith('\n')) {
+      buffer.writeln();
+    }
+    buffer.write(body);
+    return buffer.toString();
+  }
+
+  static String _toYamlInline(Object? value) {
+    if (value == null) return 'null';
+    if (value is bool || value is num) return '$value';
+    if (value is List) {
+      return '[${value.map(_toYamlInline).join(', ')}]';
+    }
+    if (value is Map) {
+      final pairs = value.entries
+          .map((e) => '${e.key}: ${_toYamlInline(e.value)}')
+          .join(', ');
+      return '{$pairs}';
+    }
+    final text = value.toString();
+    final safe = RegExp(r'^[A-Za-z0-9 _./:+-]+$').hasMatch(text) &&
+        !text.startsWith(' ') &&
+        !text.endsWith(' ') &&
+        text != 'null' &&
+        text != 'true' &&
+        text != 'false';
+    return safe ? text : jsonEncode(text);
   }
 }
 

@@ -4,7 +4,7 @@
 
 This repository contains a Flutter Android diary app that uses a **Cupertino (iOS-style) UI** instead of Material Design. The app stores diary entries as Markdown files (`.md`) in a user-selected folder on Android and supports **YAML frontmatter** parsing.
 
-The repository also includes a **GitHub Actions workflow** that builds a debug APK, intended for use on weak local machines that cannot build Android apps.
+The repository also includes a **GitHub Actions workflow** that builds a release APK, intended for use on weak local machines that cannot build Android apps.
 
 ## Implemented Features
 
@@ -14,15 +14,19 @@ The repository also includes a **GitHub Actions workflow** that builds a debug A
 - Folder path persisted via `SharedPreferences`
 - Entry listing (top-level `.md` files only, non-recursive)
 - New entry creation with default markdown + YAML frontmatter template
-- Entry editor (raw markdown editor)
-- Frontmatter metadata parsing and display (read/preview in list + editor chips)
+- Notes-style diary entry page (title field + markdown body editor)
+- Entry editor formatting toolbar (heading, bold, italic, list, checkbox, code)
+- Entry preview mode (rendered markdown)
+- Delete entry via top-right "more" menu (Cupertino action sheet)
+- Frontmatter metadata parsing and persistence (title/location/coords stored in YAML frontmatter)
+- Manual place label and current-device-location capture (with runtime location permission)
 - Delete entry support
 - Settings page with:
   - Dark mode toggle (persisted)
   - Choose diary folder
   - Refresh entries
   - Last error display
-- GitHub Actions CI to build and upload a debug APK artifact
+- GitHub Actions CI to build and upload a release APK artifact
 
 ## Key Architecture Decisions
 
@@ -63,6 +67,7 @@ Note: Flutter still relies on Android/Gradle infrastructure for packaging, but t
   - Frontmatter parsing utilities
 - `pubspec.yaml`
   - Flutter dependencies and project metadata
+  - Includes `flutter_markdown`, `geolocator`, `geocoding`, `permission_handler`
 - `.github/workflows/build-apk.yml`
   - CI workflow to build/upload APK
 - `android/...`
@@ -81,11 +86,20 @@ What this means:
 
 If reliability across many Android versions is critical, migrate storage access to a SAF-native plugin (tree URI operations) instead of raw path IO.
 
+### Location Feature Caveat
+
+- Current location uses `geolocator` runtime permission flow and device location services.
+- Reverse geocoding uses `geocoding` and may fail on some devices/ROMs; the app falls back to lat/lng coordinates.
+- Location is stored in frontmatter keys:
+  - `location`
+  - `latitude`
+  - `longitude`
+
 ### Gradle Wrapper JAR Not Committed
 
 `android/gradle/wrapper/gradle-wrapper.jar` is not included (binary not generated locally in this environment). The GitHub workflow compensates by running:
 
-- `gradle wrapper --gradle-version 8.4`
+- `gradle wrapper --gradle-version 8.7`
 
 before `flutter build apk`.
 
@@ -107,7 +121,8 @@ Recommended follow-up:
 3. Tap `Choose Diary Folder`
 4. Return to `Entries`
 5. Tap `+` to create a markdown entry
-6. Edit raw markdown/frontmatter and save
+6. Edit title/body with the native-style diary editor and save
+7. (Optional) add a place manually or fetch current device location from the entry page
 
 ## Markdown Frontmatter Behavior
 
@@ -144,18 +159,19 @@ Triggers:
 
 Artifact output:
 
-- `diary-android-debug-apk` containing `app-debug.apk`
+- `diary-android-release-apk` containing `app-release.apk`
 
 ## Suggested Next Improvements
 
 1. SAF-native folder/tree URI support for better Android compatibility
 2. Recursive folder scanning option
 3. Search/filter entries by title/tags/date
-4. Markdown preview mode (still Cupertino-themed)
-5. Frontmatter form editor (title/tags/mood/date fields)
-6. Import/export/backup helpers
-7. Automated tests (parser + controller logic)
-8. Release signing pipeline and release APK/AAB workflow
+4. SAF-native folder/tree URI support for reliable external storage on Android 11+
+5. Rich text editing behaviors (selection-aware formatting, undo/redo, keyboard shortcuts)
+6. Frontmatter form editor (tags/mood/date/custom fields)
+7. Import/export/backup helpers
+8. Automated tests (parser + controller logic)
+9. Release signing pipeline and release APK/AAB workflow
 
 ## Handoff Notes for Future AI/Developer
 
@@ -166,4 +182,3 @@ Artifact output:
   2. Run `flutter create .`
   3. Reapply `lib/main.dart` and workflow/docs
   4. Commit the generated Android wrapper artifacts
-
