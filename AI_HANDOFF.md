@@ -12,13 +12,16 @@ The repository also includes a **GitHub Actions workflow** that builds a release
 - Diary entries stored as raw `.md` files in a chosen folder
 - Folder selection via `file_picker` directory picker
 - Folder path persisted via `SharedPreferences`
+- Separate media folder selection (optional; defaults to diary folder)
 - Entry listing (top-level `.md` files only, non-recursive)
 - New entry creation with default markdown + YAML frontmatter template
 - Notes-style diary entry page (title field + markdown body editor)
 - Entry editor formatting toolbar (heading, bold, italic, list, checkbox, code)
 - Entry preview mode (rendered markdown)
 - Delete entry via top-right "more" menu (Cupertino action sheet)
-- Frontmatter metadata parsing and persistence (title/location/coords stored in YAML frontmatter)
+- Add images from the same top-right "more" menu (multi-select image import)
+- Frontmatter metadata parsing and persistence (title/location/coords/image names stored in YAML frontmatter)
+- Inline image gallery on diary page (Day One-style media strip/cards)
 - Manual place label and current-device-location capture (with runtime location permission)
 - Delete entry support
 - Settings page with:
@@ -58,16 +61,36 @@ Note: Flutter still relies on Android/Gradle infrastructure for packaging, but t
 - Root widget rebuilds via `AnimatedBuilder`.
 - No external state-management package added.
 
+### 5) Modular `lib/` Structure (Refactor)
+
+The monolithic `lib/main.dart` was split for maintainability:
+
+- `lib/main.dart`
+  - App bootstrap, tab shell, entries screen, settings screen
+- `lib/diary_controller.dart`
+  - App state, persistence, folder settings, file operations
+- `lib/entry_editor_screen.dart`
+  - Diary entry editor UI, location actions, image attachments/gallery
+- `lib/models.dart`
+  - `DiaryEntryFile`, frontmatter parse/compose utilities
+- `lib/ui_widgets.dart`
+  - Shared Cupertino list tile/banner/empty state/dialog helpers
+
 ## File Map
 
 - `lib/main.dart`
-  - App bootstrap
-  - `DiaryController`
-  - Entries screen, settings screen, editor screen
-  - Frontmatter parsing utilities
+  - App bootstrap + tab shell + entries/settings pages
+- `lib/diary_controller.dart`
+  - `DiaryController` (settings persistence, storage permission, markdown file IO)
+- `lib/entry_editor_screen.dart`
+  - Native-style diary editor, overflow menu actions, image import/gallery, location integration
+- `lib/models.dart`
+  - `DiaryEntryFile`, `MarkdownFrontmatter` parser/composer
+- `lib/ui_widgets.dart`
+  - Shared UI components/dialog helper
 - `pubspec.yaml`
   - Flutter dependencies and project metadata
-  - Includes `flutter_markdown`, `geolocator`, `geocoding`, `permission_handler`
+  - Includes `flutter_markdown`, `geolocator`, `geocoding`, `permission_handler`, `file_picker`
 - `.github/workflows/build-apk.yml`
   - CI workflow to build/upload APK
 - `android/...`
@@ -95,6 +118,13 @@ If reliability across many Android versions is critical, migrate storage access 
   - `latitude`
   - `longitude`
 
+### Media Attachments Caveat
+
+- Images are copied into the configured media folder (or diary folder if media folder is unset).
+- Only image filenames are stored in frontmatter (`images: [...]`), per the current design.
+- Renaming/moving files externally can break image previews unless frontmatter names are updated.
+- This implementation uses raw filesystem paths and inherits the same Android scoped-storage caveats as diary files.
+
 ### Gradle Wrapper JAR Not Committed
 
 `android/gradle/wrapper/gradle-wrapper.jar` is not included (binary not generated locally in this environment). The GitHub workflow compensates by running:
@@ -121,8 +151,10 @@ Recommended follow-up:
 3. Tap `Choose Diary Folder`
 4. Return to `Entries`
 5. Tap `+` to create a markdown entry
-6. Edit title/body with the native-style diary editor and save
-7. (Optional) add a place manually or fetch current device location from the entry page
+6. (Optional) set `Media Folder` in Settings
+7. Edit title/body with the native-style diary editor and save
+8. (Optional) use `...` menu to add images
+9. (Optional) add a place manually or fetch current device location from the entry page
 
 ## Markdown Frontmatter Behavior
 
@@ -146,6 +178,8 @@ Behavior:
 - `title` (if present) is used in the entry list title.
 - If missing, first markdown heading or first non-empty line is used.
 - First few frontmatter properties are shown as metadata preview.
+- `images` is a list of image filenames stored in the media folder.
+- `location`, `latitude`, and `longitude` are maintained by the entry editor when location features are used.
 
 ## CI / GitHub Actions Build
 
