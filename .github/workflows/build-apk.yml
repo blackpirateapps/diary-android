@@ -42,11 +42,11 @@ jobs:
       - name: Set up Gradle (for wrapper bootstrap)
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: "8.4"
+          gradle-version: "8.7"
 
       - name: Generate Gradle wrapper JAR
         working-directory: android
-        run: gradle wrapper --gradle-version 8.4
+        run: gradle wrapper --gradle-version 8.7
 
       - name: Install dependencies
         run: flutter pub get
