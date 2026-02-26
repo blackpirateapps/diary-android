@@ -805,10 +805,10 @@ class _EntryEditorScreenState extends State<EntryEditorScreen> {
         _textController.text,
       );
       if (!mounted) return;
-      Navigator.of(this.context).pop();
+      Navigator.of(context).pop();
     } catch (e) {
       if (!mounted) return;
-      await _showInfo(this.context, 'Save failed: $e');
+      await _showInfo(context, 'Save failed: $e');
     } finally {
       if (mounted) {
         setState(() => _saving = false);
@@ -819,7 +819,7 @@ class _EntryEditorScreenState extends State<EntryEditorScreen> {
   Future<void> _showMoreMenu() async {
     if (!mounted) return;
     final action = await showCupertinoModalPopup<String>(
-      context: this.context,
+      context: context,
       builder: (context) => CupertinoActionSheet(
         actions: [
           CupertinoActionSheetAction(
@@ -837,11 +837,11 @@ class _EntryEditorScreenState extends State<EntryEditorScreen> {
 
     if (action == 'delete') {
       if (!mounted) return;
-      final confirmed = await _confirmDelete(this.context);
+      final confirmed = await _confirmDelete(context);
       if (confirmed != true || !mounted) return;
       await widget.controller.deleteEntry(widget.initialEntry.path);
       if (!mounted) return;
-      Navigator.of(this.context).pop();
+      Navigator.of(context).pop();
     }
   }
 
